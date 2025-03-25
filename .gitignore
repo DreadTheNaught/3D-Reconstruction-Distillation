@@ -1,0 +1,6 @@
+data/
+12scenes_source
+naver
+.venv
+student_model_mobilenet.zip
+__pycache__

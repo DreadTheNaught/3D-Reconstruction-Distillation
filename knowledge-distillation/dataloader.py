@@ -17,25 +17,32 @@ class RGBDDataset(Dataset):
         self.train = train_mode
         self.frames = self._load_frames()
 
+
     def _load_frames(self):
         frames = []
         if not os.path.isdir(self.scene_dir):
             self.scene_dir = os.path.join(os.getcwd(), self.scene_dir)
 
+        pts3d_dir = os.path.join(self.scene_dir, "pts3d")
+        valid_frame_ids = {f.split(".")[0] for f in os.listdir(
+            pts3d_dir)}
+
         for f in os.listdir(os.path.join(self.scene_dir, "rgb")):
             if f.endswith(".color.jpg"):
                 frame_id = f.split(".")[0]
-                if self.train:
-                    frames.append({
-                        'color': os.path.join(self.scene_dir, "rgb", f"{frame_id}.color.jpg"),
-                        'pts3d': os.path.join(self.scene_dir, "pts3d", f"{frame_id}.pt"),
-                    })
-                else:
-                    frames.append({
-                        'color': os.path.join(self.scene_dir, "rgb", f"{frame_id}.color.jpg")
-                    })
+                if frame_id in valid_frame_ids:
+                    if self.train:
+                        frames.append({
+                            'color': os.path.join(self.scene_dir, "rgb", f"{frame_id}.color.jpg"),
+                            'pts3d': os.path.join(pts3d_dir, f"{frame_id}.pt"),
+                        })
+                    else:
+                        frames.append({
+                            'color': os.path.join(self.scene_dir, "rgb", f"{frame_id}.color.jpg")
+                        })
 
         return frames
+
 
     def __len__(self):
         return len(self.frames)

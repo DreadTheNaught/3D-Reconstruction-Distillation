@@ -29,7 +29,7 @@ class InferenceParams():
     GLOBAL_ALIGNMENT_NITER = 300
     SCHEDULE = "linear"
     LEARNING_RATE = 0.01
-    FILE_COUNT = 350
+    FILE_COUNT = 4
 
 # Initialize teacher and student models
 # teacher = TeacherModel()
@@ -42,14 +42,22 @@ def get_args_parser():
     parser.add_argument("--scene_type", type=str, default="apt1_kitchen", help="Scene type from 12Scenes dataset")
     return parser
 
-def teacher_inference(args):
 
+def teacher_inference(args):
     # Load images from both train and test
-    scene_dir_train = os.path.join(args.dataset_path, args.scene_type, "train", "rgb")
-    scene_dir_test = os.path.join(args.dataset_path, args.scene_type, "test", "rgb")
-    filelist = [os.path.join(scene_dir_train, f) for f in os.listdir(scene_dir_train)]
-    filelist += [os.path.join(scene_dir_test, f) for f in os.listdir(scene_dir_test)]
-    filelist = sorted(filelist, key=lambda x: os.path.basename(x).split('.')[0].split('-')[1])
+    scene_dir_train = os.path.join(
+        args.dataset_path, args.scene_type, "train", "rgb")
+    scene_dir_test = os.path.join(
+        args.dataset_path, args.scene_type, "test", "rgb")
+    filelist = [os.path.join(scene_dir_train, f)
+                for f in os.listdir(scene_dir_train)]
+    filelist += [os.path.join(scene_dir_test, f)
+                 for f in os.listdir(scene_dir_test)]
+    # filelist = sorted(filelist, key=lambda x: os.path.basename(x).split('.')[0].split('-')[1])
+
+    # Store the original list before subsetting
+    original_filelist = filelist.copy()
+    # Apply subsetting
     filelist = filelist[:InferenceParams.FILE_COUNT]
 
     imgs = load_images(filelist, size=InferenceParams.IMAGE_SIZE)
@@ -58,18 +66,23 @@ def teacher_inference(args):
         imgs[1]['idx'] = 1
 
     # Teacher model teaches...
-    model = AsymmetricCroCo3DStereo.from_pretrained(args.weights_path).to(InferenceParams.DEVICE)
-    pairs = make_pairs(imgs, scene_graph=InferenceParams.SCENEGRAPH_TYPE, prefilter=None, symmetrize=False)
-    output = inference(pairs, model, InferenceParams.DEVICE, batch_size=InferenceParams.BATCH_SIZE, verbose=True)
+    model = AsymmetricCroCo3DStereo.from_pretrained(
+        args.weights_path).to(InferenceParams.DEVICE)
+    pairs = make_pairs(
+        imgs, scene_graph=InferenceParams.SCENEGRAPH_TYPE, prefilter=None, symmetrize=False)
+    output = inference(pairs, model, InferenceParams.DEVICE,
+                       batch_size=InferenceParams.BATCH_SIZE, verbose=True)
 
-    mode = GlobalAlignerMode.PointCloudOptimizer if len(imgs) > 2 else GlobalAlignerMode.PairViewer
-    scene = global_aligner(output, device=InferenceParams.DEVICE, mode=mode, verbose=True)
+    mode = GlobalAlignerMode.PointCloudOptimizer if len(
+        imgs) > 2 else GlobalAlignerMode.PairViewer
+    scene = global_aligner(
+        output, device=InferenceParams.DEVICE, mode=mode, verbose=True)
 
     if mode == GlobalAlignerMode.PointCloudOptimizer:
         loss = scene.compute_global_alignment(
-            init='mst', 
-            niter=InferenceParams.GLOBAL_ALIGNMENT_NITER, 
-            schedule=InferenceParams.SCHEDULE, 
+            init='mst',
+            niter=InferenceParams.GLOBAL_ALIGNMENT_NITER,
+            schedule=InferenceParams.SCHEDULE,
             lr=InferenceParams.LEARNING_RATE,
         )
         print(loss)
@@ -81,41 +94,56 @@ def teacher_inference(args):
         gc.collect()
 
         pts_dict = {}
+        # Track which files were actually processed
+        processed_files = set([os.path.basename(f) for f in filelist])
+
         for i in range(len(filelist)):
             frame_id = filelist[i].split(".")[0]
             ind = int(frame_id.split('-')[1])
             pts_dict[ind] = pts3D[i]
 
-        return pts_dict
+        # Return both the point data and the set of processed files
+        return pts_dict, processed_files
 
 
-def create_dataset_labels(pts3D, args):
+def create_dataset_labels(pts3D, processed_files, args):
     """
-    Create labels of 3D points for all images. These 3D points are the output of the teacher model
+    Create labels of 3D points only for images that were processed during inference
     """
-    pts3d_dir_train = os.path.join(args.dataset_path, args.scene_type, "train", "pts3d")
-    pts3d_dir_test = os.path.join(args.dataset_path, args.scene_type, "test", "pts3d")
-
-    rgb_dir_train = os.listdir(os.path.join(args.dataset_path, args.scene_type, "train", "rgb"))
-    rgb_dir_test = os.listdir(os.path.join(args.dataset_path, args.scene_type, "test", "rgb"))
-
-    # num_train, num_test = train_test_split(args)
+    pts3d_dir_train = os.path.join(
+        args.dataset_path, args.scene_type, "train", "pts3d")
+    pts3d_dir_test = os.path.join(
+        args.dataset_path, args.scene_type, "test", "pts3d")
 
     if not os.path.exists(pts3d_dir_train):
-        os.mkdir(pts3d_dir_train)
+        os.makedirs(pts3d_dir_train, exist_ok=True)
 
     if not os.path.exists(pts3d_dir_test):
-        os.mkdir(pts3d_dir_test)
+        os.makedirs(pts3d_dir_test, exist_ok=True)
 
+    # Handle train directory
+    rgb_dir_train = os.listdir(os.path.join(
+        args.dataset_path, args.scene_type, "train", "rgb"))
     for f in rgb_dir_train:
-        frame_id = f.split(".")[0]
-        ind = int(frame_id.split('-')[1])
-        torch.save(pts3D[ind], os.path.join(pts3d_dir_train, f"{frame_id}.pt"))
+        # Only process files that were included in the inference
+        if f in processed_files:
+            frame_id = f.split(".")[0]
+            ind = int(frame_id.split('-')[1])
+            if ind in pts3D:
+                torch.save(pts3D[ind], os.path.join(
+                    pts3d_dir_train, f"{frame_id}.pt"))
 
+    # Handle test directory
+    rgb_dir_test = os.listdir(os.path.join(
+        args.dataset_path, args.scene_type, "test", "rgb"))
     for f in rgb_dir_test:
-        frame_id = f.split(".")[0]
-        ind = int(frame_id.split('-')[1])
-        torch.save(pts3D[ind], os.path.join(pts3d_dir_test, f"{frame_id}.pt"))
+        # Only process files that were included in the inference
+        if f in processed_files:
+            frame_id = f.split(".")[0]
+            ind = int(frame_id.split('-')[1])
+            if ind in pts3D:
+                torch.save(pts3D[ind], os.path.join(
+                    pts3d_dir_test, f"{frame_id}.pt"))
 
 
 def student_learn(student, dataloader, model_type, scene_type, logger, epochs):
@@ -170,29 +198,30 @@ def create_logger(args):
 
     return train_logger, test_logger
 
-if __name__ == "__main__":
 
+if __name__ == "__main__":
     parser = get_args_parser()
     args = parser.parse_args()
     train_logger, test_logger = create_logger(args)
 
-    pts3D = teacher_inference(args)
-    create_dataset_labels(pts3D, args)
+    # Get both points and processed files
+    pts3D, processed_files = teacher_inference(args)
+    create_dataset_labels(pts3D, processed_files, args)
 
-    ## create dataset using 3D points predicted by above teacher model
-    train_dir = os.path.join(args.dataset_path, args.scene_type, "train")
-    train_dataloader = get_dataloader(train_dir, batch_size=4)
+    # Rest of the code remains the same
+    train_dataloader = get_dataloader(
+        args.dataset_path, batch_size=4, scene_type = args.scene_type,split = "train")
     if args.model_type == 'conv_pretrained':
         student = StudentModelPretrained().to(InferenceParams.DEVICE)
-        # student.load_state_dict(torch.load("student_models/{}/{}.pth".format(args.model_type, args.scene_type)))
     else:
         student = StudentModel().to(InferenceParams.DEVICE)
 
-    student_learn(student, train_dataloader, args.model_type, args.scene_type, train_logger, epochs=300)
+    student_learn(student, train_dataloader, args.model_type,
+                  args.scene_type, train_logger, epochs=300)
 
-    ## Eval
-    test_dir = os.path.join(args.dataset_path, args.scene_type, "test")
-    test_dataloader = get_dataloader(test_dir, batch_size=1)
+    # Eval
+    test_dataloader = get_dataloader(
+        args.dataset_path, batch_size=1, scene_type=args.scene_type, split="test")
     for image, label in test_dataloader:
         pred = student(image)
         b, c, _, _ = pred.shape

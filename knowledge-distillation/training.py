@@ -29,6 +29,7 @@ class InferenceParams():
     GLOBAL_ALIGNMENT_NITER = 300
     SCHEDULE = "linear"
     LEARNING_RATE = 0.01
+    FILE_COUNT = 350
 
 # Initialize teacher and student models
 # teacher = TeacherModel()
@@ -49,6 +50,7 @@ def teacher_inference(args):
     filelist = [os.path.join(scene_dir_train, f) for f in os.listdir(scene_dir_train)]
     filelist += [os.path.join(scene_dir_test, f) for f in os.listdir(scene_dir_test)]
     filelist = sorted(filelist, key=lambda x: os.path.basename(x).split('.')[0].split('-')[1])
+    filelist = filelist[:InferenceParams.FILE_COUNT]
 
     imgs = load_images(filelist, size=InferenceParams.IMAGE_SIZE)
     if len(imgs) == 1:

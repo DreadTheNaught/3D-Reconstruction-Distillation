@@ -9,6 +9,7 @@ import torch
 from dust3r.utils.device import to_cpu, collate_with_cat
 from dust3r.utils.misc import invalid_to_nans
 from dust3r.utils.geometry import depthmap_to_pts3d, geotrf
+import os
 
 
 def _interleave_imgs(img1, img2):
@@ -51,25 +52,39 @@ def loss_of_one_batch(batch, model, criterion, device, symmetrize_batch=False, u
     return result[ret] if ret else result
 
 
+def save_tensor(tensor, folder, idx):
+    path = os.path.join(folder, f'batch_{idx}.pt')
+    torch.save(tensor, path)
+
+
+def load_tensors(folder):
+    tensors = []
+    for file in sorted(os.listdir(folder), key=lambda x: int(x.split('_')[-1].split('.')[0])):
+        tensors.append(torch.load(os.path.join(folder, file)))
+    return tensors
+
+
 @torch.no_grad()
-def inference(pairs, model, device, batch_size=8, verbose=True):
+def inference(pairs, model, device, batch_size=8, verbose=True, save_folder="temp_results"):
     if verbose:
         print(f'>> Inference with model on {len(pairs)} image pairs')
-    result = []
 
-    # first, check if all images have the same size
-    multiple_shapes = not (check_if_same_size(pairs))
+    os.makedirs(save_folder, exist_ok=True)
+
+    multiple_shapes = not check_if_same_size(pairs)
     if multiple_shapes:  # force bs=1
         batch_size = 1
 
     for i in tqdm.trange(0, len(pairs), batch_size, disable=not verbose):
-        res = loss_of_one_batch(collate_with_cat(pairs[i:i+batch_size]), model, None, device)
-        result.append(to_cpu(res))
+        res = loss_of_one_batch(collate_with_cat(
+            pairs[i:i+batch_size]), model, None, device)
+        save_tensor(res, save_folder, i // batch_size)
 
+    # Load results and collate
+    result = load_tensors(save_folder)
     result = collate_with_cat(result, lists=multiple_shapes)
-
+    
     return result
-
 
 def check_if_same_size(pairs):
     shapes1 = [img1['img'].shape[-2:] for img1, img2 in pairs]

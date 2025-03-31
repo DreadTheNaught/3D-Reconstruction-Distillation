@@ -29,7 +29,7 @@ class InferenceParams():
     GLOBAL_ALIGNMENT_NITER = 300
     SCHEDULE = "linear"
     LEARNING_RATE = 0.01
-    FILE_COUNT = 600
+    FILE_COUNT = 4
 
 # Initialize teacher and student models
 # teacher = TeacherModel()

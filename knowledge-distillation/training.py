@@ -29,7 +29,7 @@ class InferenceParams():
     GLOBAL_ALIGNMENT_NITER = 300
     SCHEDULE = "linear"
     LEARNING_RATE = 0.01
-    FILE_COUNT = 4
+    FILE_COUNT = 600
 
 # Initialize teacher and student models
 # teacher = TeacherModel()
@@ -72,12 +72,18 @@ def teacher_inference(args):
         imgs, scene_graph=InferenceParams.SCENEGRAPH_TYPE, prefilter=None, symmetrize=False)
     output = inference(pairs, model, InferenceParams.DEVICE,
                        batch_size=InferenceParams.BATCH_SIZE, verbose=True)
+    
+    del pairs
+    torch.cuda.empty_cache()
 
     mode = GlobalAlignerMode.PointCloudOptimizer if len(
         imgs) > 2 else GlobalAlignerMode.PairViewer
     scene = global_aligner(
         output, device=InferenceParams.DEVICE, mode=mode, verbose=True)
-
+    
+    del output
+    torch.cuda.empty_cache()
+    
     if mode == GlobalAlignerMode.PointCloudOptimizer:
         loss = scene.compute_global_alignment(
             init='mst',
@@ -88,6 +94,7 @@ def teacher_inference(args):
         print(loss)
         pts3D = scene.depth_to_pts3d()
         del model  # Remove the teacher model from GPU memory
+        del scene
 
         # Free up GPU memory
         torch.cuda.empty_cache()

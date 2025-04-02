@@ -1,4 +1,5 @@
 import sys
+import numpy as np
 sys.path.append("dust3r/")
 
 from student_model import StudentModel, StudentModelPretrained
@@ -8,6 +9,7 @@ from dust3r.utils.image import load_images, rgb
 from dust3r.image_pairs import make_pairs
 from dust3r.cloud_opt import global_aligner, GlobalAlignerMode
 from dataloader import get_dataloader
+import open3d as o3d
 
 import torch.nn.functional as F
 
@@ -23,13 +25,13 @@ import logging
 
 class InferenceParams():
     IMAGE_SIZE = 512
-    SCENEGRAPH_TYPE = "complete"
+    SCENEGRAPH_TYPE = "swin-3"
     DEVICE = "cuda"
     BATCH_SIZE = 8
     GLOBAL_ALIGNMENT_NITER = 300
     SCHEDULE = "linear"
     LEARNING_RATE = 0.01
-    FILE_COUNT = 4
+    FILE_COUNT =  1101
 
 # Initialize teacher and student models
 # teacher = TeacherModel()
@@ -53,7 +55,7 @@ def teacher_inference(args):
                 for f in os.listdir(scene_dir_train)]
     filelist += [os.path.join(scene_dir_test, f)
                  for f in os.listdir(scene_dir_test)]
-    # filelist = sorted(filelist, key=lambda x: os.path.basename(x).split('.')[0].split('-')[1])
+    filelist = sorted(filelist, key=lambda x: os.path.basename(x).split('.')[0].split('-')[1])
 
     # Store the original list before subsetting
     original_filelist = filelist.copy()
@@ -205,6 +207,20 @@ def create_logger(args):
 
     return train_logger, test_logger
 
+def reduce_pt_size(pts3D):
+    """
+    Reduce the size of the 3D points to save memory
+    """
+    for key in pts3D.keys():
+        pts3D[key] = pts3D[key].half()
+        
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(pts3D[key].cpu().numpy())
+        pcd = pcd.voxel_down_sample(voxel_size=0.02)  # Adjust voxel size
+        pts3D[key] = torch.tensor(np.asarray(pcd.points), dtype=torch.float16)
+        
+        
+    return pts3D
 
 if __name__ == "__main__":
     parser = get_args_parser()

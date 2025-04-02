@@ -65,25 +65,25 @@ def load_tensors(folder):
 
 
 @torch.no_grad()
-def inference(pairs, model, device, batch_size=8, verbose=True, save_folder="temp_results"):
+def inference(pairs, model, device, batch_size=8, verbose=True):
     if verbose:
         print(f'>> Inference with model on {len(pairs)} image pairs')
+    result = []
 
-    os.makedirs(save_folder, exist_ok=True)
-
-    multiple_shapes = not check_if_same_size(pairs)
+    # first, check if all images have the same size
+    multiple_shapes = not (check_if_same_size(pairs))
     if multiple_shapes:  # force bs=1
         batch_size = 1
 
     for i in tqdm.trange(0, len(pairs), batch_size, disable=not verbose):
         res = loss_of_one_batch(collate_with_cat(
-            pairs[i:i+batch_size]), model, None, device)
-        save_tensor(res, save_folder, i // batch_size)
+            pairs[i:i + batch_size]), model, None, device)
+        res["pred1"]["pts3d"] = res["pred1"]["pts3d"].half()
+        res["pred2"]["pts3d_in_other_view"] = res["pred2"]["pts3d_in_other_view"].half()
+        result.append(to_cpu(res))
 
-    # Load results and collate
-    result = load_tensors(save_folder)
     result = collate_with_cat(result, lists=multiple_shapes)
-    
+
     return result
 
 def check_if_same_size(pairs):
